@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -16,6 +16,13 @@ interface Agent {
   messages: number;
   lastActivity: string;
   tmuxSession: string;
+}
+
+interface ChatMessage {
+  id: string;
+  role: "user" | "agent";
+  content: string;
+  timestamp: string;
 }
 
 interface Activity {
@@ -73,6 +80,8 @@ const AVAILABLE_MODELS = [
   "openai/gpt-4o",
 ];
 
+const DAILY_BUDGET = 5.00;
+
 // ── Components ────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: AgentStatus }) {
@@ -104,7 +113,190 @@ function PriorityBadge({ priority }: { priority: Task["priority"] }) {
   );
 }
 
-function AgentRow({ agent, onModelChange }: { agent: Agent; onModelChange: (id: string, model: string) => void }) {
+// ── Chat Drawer ───────────────────────────────────────────
+
+function ChatDrawer({
+  agent,
+  onClose,
+}: {
+  agent: Agent;
+  onClose: () => void;
+}) {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: "1",
+      role: "agent",
+      content: `Hello! I'm ${agent.name}, your ${agent.role}. How can I help you today?`,
+      timestamp: new Date().toISOString(),
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const sendMessage = useCallback(async () => {
+    if (!input.trim() || sending) return;
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: "user",
+      content: input.trim(),
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    setSending(true);
+
+    // Simulate agent response (replace with real API call to Hermes CLI)
+    setTimeout(() => {
+      const agentResp: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "agent",
+        content: `Message received. I'm currently ${agent.status === "working" ? "working on your task" : "idle and ready"}. As your ${agent.role}, I'll process your request and report back.`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, agentResp]);
+      setSending(false);
+    }, 1200 + Math.random() * 800);
+  }, [input, sending, agent]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/60 z-40"
+        onClick={onClose}
+      />
+
+      {/* Drawer */}
+      <div className="fixed right-0 top-0 h-full w-full max-w-md bg-card border-l border-border z-50 flex flex-col shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-card">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-primary/20 border border-primary/40 flex items-center justify-center">
+              <span className="text-sm font-bold gold-text">{agent.name.charAt(0)}</span>
+            </div>
+            <div>
+              <div className="font-semibold text-sm gold-text">{agent.name}</div>
+              <div className="flex items-center gap-2">
+                <StatusBadge status={agent.status} />
+                <span className="text-[10px] text-muted-foreground">{agent.model}</span>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-primary/10 transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Role info bar */}
+        <div className="px-5 py-2 border-b border-border bg-secondary/30">
+          <span className="text-[10px] text-muted-foreground">{agent.role}</span>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground rounded-br-md"
+                    : "bg-secondary border border-border text-foreground rounded-bl-md"
+                }`}
+              >
+                <div className="leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+                <div
+                  className={`text-[10px] mt-1 ${
+                    msg.role === "user" ? "text-primary-foreground/60" : "text-muted-foreground"
+                  }`}
+                >
+                  {new Date(msg.timestamp).toLocaleTimeString()}
+                </div>
+              </div>
+            </div>
+          ))}
+          {sending && (
+            <div className="flex justify-start">
+              <div className="bg-secondary border border-border rounded-2xl rounded-bl-md px-4 py-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce [animation-delay:0.15s]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce [animation-delay:0.3s]" />
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Input */}
+        <div className="p-4 border-t border-border bg-card">
+          <div className="flex gap-2">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={`Message ${agent.name}...`}
+              rows={1}
+              className="flex-1 bg-input border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!input.trim() || sending}
+              className="px-4 py-2.5 rounded-xl bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+            >
+              <span>Send</span>
+              <span>→</span>
+            </button>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-[10px] text-muted-foreground">Model:</span>
+            <select
+              value={agent.model}
+              className="text-[10px] bg-transparent text-muted-foreground border-0 focus:outline-none cursor-pointer"
+            >
+              {AVAILABLE_MODELS.map((m) => (
+                <option key={m} value={m} className="bg-card text-foreground">{m}</option>
+              ))}
+            </select>
+            <span className="text-[10px] text-muted-foreground ml-auto">
+              Session: {agent.tmuxSession}
+            </span>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Agent Row ─────────────────────────────────────────────
+
+function AgentRow({
+  agent,
+  onModelChange,
+  onChat,
+}: {
+  agent: Agent;
+  onModelChange: (id: string, model: string) => void;
+  onChat: (agent: Agent) => void;
+}) {
   return (
     <tr className="border-b border-border hover:bg-white/[0.02] transition-colors">
       <td className="py-3 px-4">
@@ -138,9 +330,20 @@ function AgentRow({ agent, onModelChange }: { agent: Agent; onModelChange: (id: 
       <td className="py-3 px-4 text-xs text-muted-foreground">
         {agent.lastActivity ? new Date(agent.lastActivity).toLocaleTimeString() : "—"}
       </td>
+      <td className="py-3 px-4">
+        <button
+          onClick={() => onChat(agent)}
+          className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center text-primary hover:bg-primary/20 hover:border-primary/50 transition-all text-xs"
+          title={`Chat with ${agent.name}`}
+        >
+          💬
+        </button>
+      </td>
     </tr>
   );
 }
+
+// ── Activity Feed ──────────────────────────────────────────
 
 function ActivityFeed({ activities }: { activities: Activity[] }) {
   const formatTime = (ts: string) => {
@@ -169,6 +372,8 @@ function ActivityFeed({ activities }: { activities: Activity[] }) {
   );
 }
 
+// ── Task Inbox ────────────────────────────────────────────
+
 function TaskInbox({ tasks }: { tasks: Task[] }) {
   return (
     <div className="space-y-2">
@@ -196,6 +401,40 @@ function TaskInbox({ tasks }: { tasks: Task[] }) {
   );
 }
 
+// ── Budget Bar ─────────────────────────────────────────────
+
+function BudgetBar({ totalCost }: { totalCost: number }) {
+  const pct = Math.min((totalCost / DAILY_BUDGET) * 100, 100);
+  const isWarning = pct >= 70;
+  const isCritical = pct >= 90;
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs text-muted-foreground">Daily Budget</span>
+        <span className={`text-xs font-mono font-bold ${isCritical ? "text-red-400" : isWarning ? "text-yellow-400" : "gold-text"}`}>
+          ${totalCost.toFixed(4)} / ${DAILY_BUDGET.toFixed(2)}
+        </span>
+      </div>
+      <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${
+            isCritical ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-primary"
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="flex justify-between mt-1">
+        <span className="text-[10px] text-muted-foreground">0%</span>
+        <span className={`text-[10px] ${isWarning ? "text-yellow-400" : "text-muted-foreground"}`}>
+          {pct.toFixed(1)}% used
+        </span>
+        <span className="text-[10px] text-muted-foreground">100%</span>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Dashboard ────────────────────────────────────────
 
 export default function Dashboard() {
@@ -204,6 +443,7 @@ export default function Dashboard() {
   const [tasks] = useState<Task[]>(INITIAL_TASKS);
   const [activeTab, setActiveTab] = useState<"agents" | "inbox">("agents");
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [chatAgent, setChatAgent] = useState<Agent | null>(null);
 
   // Simulate live cost updates for working agents
   useEffect(() => {
@@ -230,9 +470,16 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {chatAgent && (
+        <ChatDrawer
+          agent={chatAgent}
+          onClose={() => setChatAgent(null)}
+        />
+      )}
+
       {/* ── Header ─────────────────────────────────── */}
-      <header className="border-b border-border bg-card">
-        <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-border bg-card sticky top-0 z-30">
+        <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <span className="text-black font-bold text-sm">A</span>
@@ -244,7 +491,7 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-xs text-muted-foreground">
-              Last refresh: {lastRefresh.toLocaleTimeString()}
+              Refresh: {lastRefresh.toLocaleTimeString()}
             </span>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/30">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 status-working" />
@@ -254,7 +501,10 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="max-w-[1400px] mx-auto px-6 py-6 space-y-6">
+      <main className="max-w-[1600px] mx-auto px-6 py-6 space-y-6">
+        {/* ── Budget Bar ────────────────────────────── */}
+        <BudgetBar totalCost={totalCost} />
+
         {/* ── Stat Strip ────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
@@ -315,11 +565,17 @@ export default function Dashboard() {
                       <th className="text-left py-3 px-4 text-xs font-semibold">Cost</th>
                       <th className="text-left py-3 px-4 text-xs font-semibold">Msgs</th>
                       <th className="text-left py-3 px-4 text-xs font-semibold">Last Active</th>
+                      <th className="text-left py-3 px-4 text-xs font-semibold">Chat</th>
                     </tr>
                   </thead>
                   <tbody>
                     {agents.map((agent) => (
-                      <AgentRow key={agent.id} agent={agent} onModelChange={handleModelChange} />
+                      <AgentRow
+                        key={agent.id}
+                        agent={agent}
+                        onModelChange={handleModelChange}
+                        onChat={setChatAgent}
+                      />
                     ))}
                   </tbody>
                 </table>
